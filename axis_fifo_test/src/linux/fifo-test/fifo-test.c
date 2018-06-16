@@ -160,7 +160,7 @@ int main(int argc, char *argv[])
 	// generate random string of numbers
 	// e.g. 3 words 111155558888
 	for (unsigned i = 0; i < num_words; i++) {
-		unsigned r = rand() % 10 + 119;
+		unsigned r = rand() % 10 + '0';
 		data_string[i*4 + 0] = (char)r;
 		data_string[i*4 + 1] = (char)r;
 		data_string[i*4 + 2] = (char)r;

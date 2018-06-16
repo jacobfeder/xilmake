@@ -27,7 +27,14 @@ usage() { echo "Usage: xilmake [OPTIONS] [PROJECT DIRECTORY]
 Description: Automated build system for Zynq SoC projects.
 
 Arguments:
-	-c, --linux_config
+	-b, --bypass
+		If linux has already been built, this bypasses a
+		rebuild by running petalinux-package with the most
+		recent bitstream file. This can decrease build time
+		If only FPGA firmware that doesn't interface with
+		the PS was modified.
+
+	-c, --menuconfig
 		Bring up the menu for petalinux configuration
 		during compilation. Also copies the generated
 		config files into the source directory.
@@ -54,12 +61,12 @@ Arguments:
 		Use this for different project build variants.
 
 	-t,  --to [see below]
-		The build step to stop at. Assumed to be the
+		The build step to stop at (inclusive). Assumed to be the
 		last build step if not specified.
 
 The build steps are:
 0 or na - if you don't want to perform any build
-		  steps use --from na -to na
+		  steps use --from na --to na
 1 or ip - generate and package IP from source
 		  (create Vivado IP projects & package IP)
 2 or vg - generate Vivado project from source & IP
@@ -104,7 +111,7 @@ to SD card /dev/sdb
 xilmake -f0 -t0 -d /dev/sdb ." 1>&2; exit 1;}
 
 # read the options
-TEMP=`getopt -o cd:f:hiop:t: --long linux_config,download:,from:,help,ignore,overwrite,project:,to: -n "xilmake" -- "$@"`
+TEMP=`getopt -o bcd:f:hiop:t: --long bypass,menuconfig,download:,from:,help,ignore,overwrite,project:,to: -n "xilmake" -- "$@"`
 eval set -- "$TEMP"
 
 # TODO linux quick build option that runs script to gcc compile + sftp
@@ -112,7 +119,8 @@ eval set -- "$TEMP"
 # extract options and their arguments into variables.
 while true ; do
 	case "$1" in
-		-c|--linux_config) LINUX_MANUAL_CONFIG=1 ; shift ;;
+		-b|--bypass) BYPASS=1 ; shift ;;
+		-c|--menuconfig) LINUX_MANUAL_CONFIG=1 ; shift ;;
 		-d|--download)
 			SD_CARD=$2
 			if [[ -z "$FROM" ]]; then
@@ -162,6 +170,7 @@ IP_PROJECT_DIR=$PROJECT_BUILD_DIR"/"$IP_PROJECT_NAME
 VIVADO_PROJECT_NAME=$PROJECT_NAME"_hw"
 VIVADO_PROJECT_DIR=$PROJECT_BUILD_DIR"/"$VIVADO_PROJECT_NAME
 HDF_FILE=$VIVADO_PROJECT_DIR"/"$PROJECT_NAME".hdf"
+BIT_FILE=$VIVADO_PROJECT_DIR"/"$PROJECT_NAME".bit"
 LINUX_PROJECT_NAME=$PROJECT_NAME"_linux"
 LINUX_PROJECT_DIR=$PROJECT_BUILD_DIR"/"$LINUX_PROJECT_NAME
 
@@ -195,7 +204,7 @@ source $TOP_DIR"/settings.sh"
 if ! [[ "$FROM" -gt 3 || "$TO" -lt 1 ]]; then
 	source $VIVADO_INSTALL_DIR"/settings64.sh"
 fi
-if ! [[ "$FROM" -gt 6 || "$TO" -lt 4 ]]; then
+if [[ ! ( "$FROM" -gt 6 || "$TO" -lt 4 ) || ! -z "$BYPASS" ]]; then
 	source $PETALINUX_INSTALL_DIR"/settings.sh" $PETALINUX_INSTALL_DIR
 fi
 
@@ -335,6 +344,7 @@ if [[ "$FROM" -le 3 && "$TO" -ge 3 ]]; then
 		vivado -mode batch -nojournal -nolog -notrace -source $PROJECT_BUILD_DIR"/build.tcl"
 
 		cp -f $VIVADO_PROJECT_DIR"/"$VIVADO_PROJECT_NAME".runs/impl_1/"$VIVADO_PROJECT_NAME"_wrapper.sysdef" $HDF_FILE
+		cp -f $VIVADO_PROJECT_DIR"/"$VIVADO_PROJECT_NAME".runs/impl_1/"$VIVADO_PROJECT_NAME"_wrapper.bit" $BIT_FILE
 
 		rm -f $PROJECT_BUILD_DIR"/build.tcl"
 	fi
@@ -383,11 +393,11 @@ if [[ "$FROM" -le 4 && "$TO" -ge 4 ]]; then
 		# configure petalinux
 		if [ "$LINUX_MANUAL_CONFIG" != 0 ]; then
 			petalinux-config --get-hw-description=$VIVADO_PROJECT_DIR
-			petalinux-config -c kernel
+			petalinux-config -c kernel 
 			petalinux-config -c rootfs
 			# copy generated config files to src folder
-			cp -f -v $LINUX_PROJECT_DIR"/project-spec/configs/config" $TOP_DIR"/src/linux/config-autogen"
-			cp -f -v $LINUX_PROJECT_DIR"/project-spec/configs/rootfs_config" $TOP_DIR"/src/linux/rootfs_config-autogen"
+			cp -f -v $LINUX_PROJECT_DIR"/project-spec/configs/config" $TOP_DIR"/src/linux/config-last"
+			cp -f -v $LINUX_PROJECT_DIR"/project-spec/configs/rootfs_config" $TOP_DIR"/src/linux/rootfs_config-last"
 		else
 			# copy custom config files if they exist
 			if [[ -e $TOP_DIR"/src/petalinux/config" ]]; then
@@ -397,8 +407,10 @@ if [[ "$FROM" -le 4 && "$TO" -ge 4 ]]; then
 				cp -f -v $TOP_DIR"/src/petalinux/rootfs_config" $LINUX_PROJECT_DIR"/project-spec/configs/"
 			fi
 			petalinux-config --get-hw-description=$VIVADO_PROJECT_DIR --oldconfig
+			if [[ -e $TOP_DIR"/src/petalinux/kernel_config" ]]; then
+				petalinux-config -c kernel --defconfig=$TOP_DIR"/src/petalinux/kernel_config"
+			fi
 			petalinux-config -c rootfs --oldconfig
-			# TODO add kernel config file
 		fi
 
 		# generate apps/modules
@@ -433,6 +445,26 @@ if [[ "$FROM" -le 6 && "$TO" -ge 6 ]]; then
 
 	# package boot files
 	petalinux-package --boot --fsbl $LINUX_PROJECT_DIR"/images/linux/zynq_fsbl.elf" --fpga $LINUX_PROJECT_DIR"/images/linux/system.bit" --u-boot --force
+
+	# stop & remove virtual python environment
+	deactivate
+	rm -rf temp-python
+fi
+
+# petalinux-package without building
+if [[ ! -z "$BYPASS" ]]; then
+	echo "-----------------------"
+	echo "Packaging Linux project"
+	echo "-----------------------"
+
+	cd $LINUX_PROJECT_DIR
+
+	# begin virtual python environment to force python2 usage for bitbake
+	virtualenv -p /usr/bin/python2.7 --distribute temp-python
+	source temp-python/bin/activate
+
+	# package boot files
+	petalinux-package --boot --fsbl $LINUX_PROJECT_DIR"/images/linux/zynq_fsbl.elf" --fpga $BIT_FILE --u-boot --force	
 
 	# stop & remove virtual python environment
 	deactivate
