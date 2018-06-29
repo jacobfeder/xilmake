@@ -5,34 +5,16 @@
 
 # automated build system for Zynq SoC projects
 
-# -----------------------------
-# ----- default parameters ----
-# -----------------------------
-
-# default project name
-PROJECT_NAME=default
-
-# whether linux config menu should be brought up during build
-LINUX_MANUAL_CONFIG=0
-
-# if requested to build something that already exists
-# 0 to ask, 1 to overwrite, anything else to skip
-OVERWRITE=0
-
 # ----------------------------------------------------------
 # ----------------------------------------------------------
 # ----------------------------------------------------------
 
-usage() { echo "Usage: xilmake [OPTIONS] [PROJECT DIRECTORY]
+usage() { echo "Usage: xilmake [options] [project directory]
 Description: Automated build system for Zynq SoC projects.
 
+-------------------------------------------------------------------
+
 Arguments:
-	-b, --bypass
-		If linux has already been built, this bypasses a
-		rebuild by running petalinux-package with the most
-		recent bitstream file. This can decrease build time
-		If only FPGA firmware that doesn't interface with
-		the PS was modified.
 
 	-c, --menuconfig
 		Bring up the menu for petalinux configuration
@@ -41,6 +23,8 @@ Arguments:
 
 	-d, --download [SD card directory]
 		Download boot files to an SD card (e.g. /dev/sdc).
+		Does not perform any build steps unless an --from or
+		--to option is specified.
 
 	-f,  --from [see below]
 		The build step to start at. Assumed to be
@@ -54,7 +38,7 @@ Arguments:
 		build steps if specified by -from, -to.
 
 	-o, --overwrite
-		Overwrite previous files from previously completed
+		Overwrite files from previously completed
 		build steps if specified by -from, -to.
 
 	-p, --project [name string]
@@ -64,7 +48,10 @@ Arguments:
 		The build step to stop at (inclusive). Assumed to be the
 		last build step if not specified.
 
-The build steps are:
+-------------------------------------------------------------------
+
+Build steps:
+
 0 or na - if you don't want to perform any build
 		  steps use --from na --to na
 1 or ip - generate and package IP from source
@@ -83,7 +70,25 @@ The build steps are:
 6 or lb - build linux project
 		  (petalinux-build + petalinux-package)
 
+-------------------------------------------------------------------
+
+Notes:
+
+Supports the following linux rootfs types:
+- initramfs
+- NFS
+- SD boot (however the rootfs will not be automatically updated;
+	you must use xilmake -d to download the rootfs to the SD card)
+
+If Vivado build (vb) is run and linux has already been built,
+petalinux-package will be run with the most recent bitstream file.
+This can decrease build time if only FPGA firmware that doesn't
+interface with the PS was modified.
+
+-------------------------------------------------------------------
+
 Examples:
+
 generate & package IP
 xilmake -f ip -t ip .
 or
@@ -91,12 +96,13 @@ xilmake -f 1 -t 1 .
 or
 xilmake -t1 ~/zynq/cool_project
 
-generate and build Vivado/FPGA design
+generate and build Vivado/FPGA design, downloading
+the bit file directly without any linux compilation
 xilmake -f ip -t vb .
 
 generate and build linux from existing Vivado
 hardware design and also bring up manual linux config
-xilmake -f lg -t lb -k .
+xilmake -f lg -t lb -c .
 
 generate and build linux from existing Vivado hardware
 design then download boot files to SD card /dev/sdc
@@ -104,14 +110,14 @@ xilmake -f lg -d /dev/sdc .
 
 generate and build entire project and download
 boot files to SD card
-xilmake -d /dev/sdc .
+xilmake -tlb -d /dev/sdc .
 
 download previously generated boot files
 to SD card /dev/sdb
-xilmake -f0 -t0 -d /dev/sdb ." 1>&2; exit 1;}
+xilmake -d /dev/sdb ." 1>&2; exit 1;}
 
 # read the options
-TEMP=`getopt -o bcd:f:hiop:t: --long bypass,menuconfig,download:,from:,help,ignore,overwrite,project:,to: -n "xilmake" -- "$@"`
+TEMP=`getopt -o cd:f:hiop:t: --long menuconfig,download:,from:,help,ignore,overwrite,project:,to: -n "xilmake" -- "$@"`
 eval set -- "$TEMP"
 
 # TODO linux quick build option that runs script to gcc compile + sftp
@@ -119,17 +125,9 @@ eval set -- "$TEMP"
 # extract options and their arguments into variables.
 while true ; do
 	case "$1" in
-		-b|--bypass) BYPASS=1 ; shift ;;
 		-c|--menuconfig) LINUX_MANUAL_CONFIG=1 ; shift ;;
 		-d|--download)
-			SD_CARD=$2
-			if [[ -z "$FROM" ]]; then
-				FROM=0
-			fi
-			if [[ -z "$TO" ]]; then
-				TO=0
-			fi
-			shift 2 ;;
+			SD_CARD=$2 ; shift 2 ;;
 		-f|--from)
 			case "$2" in
 				0|na) FROM=0 ; shift 2 ;;
@@ -162,8 +160,51 @@ while true ; do
 	esac
 done
 
+# set defaults
+
+if [[ ! -z "$SD_CARD" && -z "$FROM" && -z "$FROM" ]]; then
+	# if SD card is specified but not FROM or TO
+	FROM=0
+	TO=0
+else
+	# default build step to start at
+	if [[ -z "$FROM" ]]; then
+		FROM=1
+	fi
+
+	# default build step to stop at
+	if [[ -z "$TO" ]]; then
+		TO=6
+	fi
+fi
+
+if [[ -z  "$LINUX_MANUAL_CONFIG" ]]; then
+	# whether linux config menu should be brought up during build
+	# 0 to use default configs, 1 to bring up dialog
+	LINUX_MANUAL_CONFIG=0
+fi
+
+if [[ -z  "$OVERWRITE" ]]; then
+	# if requested to build something that already exists
+	# 0 to ask, 1 to overwrite, anything else to skip
+	OVERWRITE=0
+fi
+
+if [[ -z "$1" ]]; then
+	echo "No project directory specified"
+	exit 1
+fi
+
 OG_DIR=$PWD
 TOP_DIR=$(readlink -f $1)
+
+# source project settings
+source $TOP_DIR"/settings.sh"
+
+if [[ -z "$PROJECT_NAME" ]]; then
+	PROJECT_NAME=$DEFAULT_PROJECT_NAME
+fi
+
 PROJECT_BUILD_DIR=$TOP_DIR"/build/"$PROJECT_NAME
 IP_PROJECT_NAME=$PROJECT_NAME"_IP"
 IP_PROJECT_DIR=$PROJECT_BUILD_DIR"/"$IP_PROJECT_NAME
@@ -174,18 +215,8 @@ BIT_FILE=$VIVADO_PROJECT_DIR"/"$PROJECT_NAME".bit"
 LINUX_PROJECT_NAME=$PROJECT_NAME"_linux"
 LINUX_PROJECT_DIR=$PROJECT_BUILD_DIR"/"$LINUX_PROJECT_NAME
 
-# default build step to start at
-if [[ -z "$FROM" ]]; then
-	FROM=1
-fi
-
-# default build step to stop at
-if [[ -z "$TO" ]]; then
-	TO=6
-fi
-
-if [[ -z "$1" ]]; then
-	echo "No project directory specified"
+if ! [[ -d "$TOP_DIR" ]]; then
+	echo "Specified project directory $1 does not exist"
 	exit 1
 fi
 
@@ -197,14 +228,11 @@ fi
 
 START_TIME="$(date -u +%s)"
 
-# source project settings
-source $TOP_DIR"/settings.sh"
-
-# add required tools to DIR
+# add required tools to PATH
 if ! [[ "$FROM" -gt 3 || "$TO" -lt 1 ]]; then
 	source $VIVADO_INSTALL_DIR"/settings64.sh"
 fi
-if [[ ! ( "$FROM" -gt 6 || "$TO" -lt 4 ) || ! -z "$BYPASS" ]]; then
+if [[ ! ( "$FROM" -gt 6 || "$TO" -lt 4 ) ]]; then
 	source $PETALINUX_INSTALL_DIR"/settings.sh" $PETALINUX_INSTALL_DIR
 fi
 
@@ -347,6 +375,28 @@ if [[ "$FROM" -le 3 && "$TO" -ge 3 ]]; then
 		cp -f $VIVADO_PROJECT_DIR"/"$VIVADO_PROJECT_NAME".runs/impl_1/"$VIVADO_PROJECT_NAME"_wrapper.bit" $BIT_FILE
 
 		rm -f $PROJECT_BUILD_DIR"/build.tcl"
+
+
+		# if linux has already been built and won't be rebuilt,
+		# petalinux-package without petalinux-build to copy the bit file
+		if [[ -e $LINUX_PROJECT_DIR"/images/linux/" && "$TO" -lt 6 ]]; then
+			echo "-----------------------"
+			echo "Packaging Linux project"
+			echo "-----------------------"
+
+			cd $LINUX_PROJECT_DIR
+
+			# begin virtual python environment to force python2 usage for bitbake
+			virtualenv -p /usr/bin/python2.7 --distribute temp-python
+			source temp-python/bin/activate
+
+			# package boot files
+			petalinux-package --boot --fsbl $LINUX_PROJECT_DIR"/images/linux/zynq_fsbl.elf" --fpga $BIT_FILE --u-boot --force	
+
+			# stop & remove virtual python environment
+			deactivate
+			rm -rf temp-python
+		fi
 	fi
 fi
 
@@ -391,26 +441,26 @@ if [[ "$FROM" -le 4 && "$TO" -ge 4 ]]; then
 		cd $LINUX_PROJECT_DIR
 
 		# configure petalinux
-		if [ "$LINUX_MANUAL_CONFIG" != 0 ]; then
+		if [[ "$LINUX_MANUAL_CONFIG" != 0 ]]; then
 			petalinux-config --get-hw-description=$VIVADO_PROJECT_DIR
 			petalinux-config -c kernel 
 			petalinux-config -c rootfs
 			# copy generated config files to src folder
-			cp -f -v $LINUX_PROJECT_DIR"/project-spec/configs/config" $TOP_DIR"/src/linux/config-last"
-			cp -f -v $LINUX_PROJECT_DIR"/project-spec/configs/rootfs_config" $TOP_DIR"/src/linux/rootfs_config-last"
+			cp -f -v $LINUX_PROJECT_DIR"/project-spec/configs/config" $TOP_DIR"/src/linux/config/config-last"
+			cp -f -v $LINUX_PROJECT_DIR"/project-spec/configs/rootfs_config" $TOP_DIR"/src/linux/config/rootfs_config-last"
 		else
-			# copy custom config files if they exist
-			if [[ -e $TOP_DIR"/src/petalinux/config" ]]; then
-				cp -f -v $TOP_DIR"/src/petalinux/config" $LINUX_PROJECT_DIR"/project-spec/configs/"
-			fi
-			if [[ -e $TOP_DIR"/src/petalinux/rootfs_config" ]]; then
-				cp -f -v $TOP_DIR"/src/petalinux/rootfs_config" $LINUX_PROJECT_DIR"/project-spec/configs/"
-			fi
 			petalinux-config --get-hw-description=$VIVADO_PROJECT_DIR --oldconfig
-			if [[ -e $TOP_DIR"/src/petalinux/kernel_config" ]]; then
-				petalinux-config -c kernel --defconfig=$TOP_DIR"/src/petalinux/kernel_config"
-			fi
 			petalinux-config -c rootfs --oldconfig
+
+			if [[ -e $TOP_DIR"/src/linux/config/config" ]]; then
+				cp -f -v $TOP_DIR"/src/linux/config/config" $LINUX_PROJECT_DIR"/project-spec/configs/"
+			fi
+			if [[ -e $TOP_DIR"/src/linux/config/rootfs_config" ]]; then
+				cp -f -v $TOP_DIR"/src/linux/config/rootfs_config" $LINUX_PROJECT_DIR"/project-spec/configs/"
+			fi
+			if [[ -e $TOP_DIR"/src/linux/config/kernel_config" ]]; then
+				petalinux-config -c kernel --defconfig=$TOP_DIR"/src/linux/config/kernel_config"
+			fi
 		fi
 
 		# generate apps/modules
@@ -425,7 +475,7 @@ if [[ "$FROM" -le 5 && "$TO" -ge 5 ]]; then
 	echo "----------------------------------"
 	
 	# copy source files into project
-	source $TOP_DIR"/src/linux/copy.sh" $TOP_DIR"/src/linux" $LINUX_PROJECT_DIR"/project-spec/meta-user"
+	source $TOP_DIR"/src/linux/copy.sh" $TOP_DIR"/src/linux" $LINUX_PROJECT_DIR
 fi
 
 # build petalinux project from existing configured project directory
@@ -451,26 +501,6 @@ if [[ "$FROM" -le 6 && "$TO" -ge 6 ]]; then
 	rm -rf temp-python
 fi
 
-# petalinux-package without building
-if [[ ! -z "$BYPASS" ]]; then
-	echo "-----------------------"
-	echo "Packaging Linux project"
-	echo "-----------------------"
-
-	cd $LINUX_PROJECT_DIR
-
-	# begin virtual python environment to force python2 usage for bitbake
-	virtualenv -p /usr/bin/python2.7 --distribute temp-python
-	source temp-python/bin/activate
-
-	# package boot files
-	petalinux-package --boot --fsbl $LINUX_PROJECT_DIR"/images/linux/zynq_fsbl.elf" --fpga $BIT_FILE --u-boot --force	
-
-	# stop & remove virtual python environment
-	deactivate
-	rm -rf temp-python
-fi
-
 # download boot files to SD card
 if [[ ! -z "$SD_CARD" ]]; then
 	echo "------------------------------------------"
@@ -478,16 +508,16 @@ if [[ ! -z "$SD_CARD" ]]; then
 	echo "------------------------------------------"
 
 	# SD card partition mount locations
-	BOOT_DIR=/mnt/BOOT/
-	ROOTFS_DIR=/mnt/rootfs/
+	BOOT_DIR=/mnt/BOOT
+	ROOTFS_DIR=/mnt/rootfs
 
 	# unmount and remove all partitions
 	partitions=($SD_CARD?)
-	if [ "$partitions" != $SD_CARD\? ]; then
-	  for ((i=${#partitions[@]}-1; i>=0; i--)); do
-	      sudo umount "${partitions[$i]}"
-	      sudo parted $SD_CARD rm "${partitions[$i]: -1}"
-	  done
+	if [[ "$partitions" != $SD_CARD\? ]]; then
+		for ((i=${#partitions[@]}-1; i>=0; i--)); do
+			sudo umount "${partitions[$i]}"
+			sudo parted $SD_CARD rm "${partitions[$i]: -1}"
+		done
 	fi
 
 	# create partition table
@@ -513,6 +543,9 @@ if [[ ! -z "$SD_CARD" ]]; then
 
 	# copy FSBL, u-boot, bitstream into boot partition
 	sudo cp -f $LINUX_PROJECT_DIR"/images/linux/BOOT.BIN" $BOOT_DIR
+	# add additional u-boot environment variables into boot partition
+	echo 'uenvcmd=if test -n ${ipaddr}; then tftpboot ${clobstart} system.bit; fpga loadb 0 ${clobstart} ${filesize}; run update_boot; run update_dtb; run update_kernel; else echo "No ethernet connection, skipping TFTP update..."; fi' | sudo tee $BOOT_DIR"/uEnv.txt"
+
 	# copy kernel into boot partition
 	sudo cp -f $LINUX_PROJECT_DIR"/images/linux/image.ub" $BOOT_DIR
 
@@ -531,6 +564,6 @@ ELAPSED_TIME="$(($END_TIME-$START_TIME))"
 ((HOURS=${ELAPSED_TIME} / 3600))
 ((MINUTES=(${ELAPSED_TIME} % 3600) / 60))
 ((SECONDS=${ELAPSED_TIME} % 60))
-printf "completed run time %02d:%02d:%02d\n" $HOURS $MINUTES $SECONDS
+printf "Build complete - run time %02d:%02d:%02d\n" $HOURS $MINUTES $SECONDS
 
 cd $OG_DIR

@@ -1,0 +1,1 @@
+uenvcmd=tftpboot ${clobstart} system.bit; fpga loadb 0 ${clobstart} ${filesize}; run update_uenv; run update_boot; run update_dtb; run update_kernel; bootm
