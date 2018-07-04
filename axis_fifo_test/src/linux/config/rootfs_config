@@ -3606,9 +3606,9 @@ CONFIG_bridge-utils=y
 #
 # wpa-supplicant 
 #
-# CONFIG_wpa-supplicant is not set
+CONFIG_wpa-supplicant=y
 # CONFIG_wpa-supplicant-passphrase is not set
-# CONFIG_wpa-supplicant-cli is not set
+CONFIG_wpa-supplicant-cli=y
 # CONFIG_wpa-supplicant-dev is not set
 # CONFIG_wpa-supplicant-dbg is not set
 
@@ -4130,8 +4130,15 @@ CONFIG_bridge-utils=y
 #
 # apps 
 #
+CONFIG_fifo-test=y
 # CONFIG_gpio-demo is not set
 # CONFIG_peekpoke is not set
+CONFIG_startup=y
+
+#
+# modules 
+#
+CONFIG_axis-fifo=y
 
 #
 # user packages 

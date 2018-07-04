@@ -346,6 +346,7 @@ static ssize_t axis_fifo_read(struct file *device_file, char __user *buf,
 
 	if (device_wrapper->read_flags & O_NONBLOCK) {
 		// opened in non-blocking mode
+		
 		// return if there are no packets available
 		if (!ioread32(device_wrapper->base_addr + XLLF_RDFO_OFFSET)) {
 			return -EAGAIN;

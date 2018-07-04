@@ -1,9 +1,15 @@
 #!/bin/sh
 
-# start scripts in a new process (use &) or they will
+# start other scripts in a new process (use &) or they will
 # block the startup process
 
-echo "Hello world!"
+echo "Running startup script..."
 
-# set static IP address
-ifconfig eth0 192.168.1.249 netmask 255.255.255.0 up
+# set ethernet static IP address
+#ifconfig eth0 192.168.1.249 netmask 255.255.255.0 up
+
+# mount SD card
+mount /dev/mmcblk0p1
+
+# start wireless service
+wpa_supplicant -B -i wlan0 -c /etc/wpa-supplicant.conf

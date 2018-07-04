@@ -1,3 +1,4 @@
-petalinux-create -t apps --name startup --enable --template install
-petalinux-create -t modules --name axis-fifo --enable
-petalinux-create -t apps --name fifo-test --enable --template c
+petalinux-create --name startup       --enable --type apps --template install
+petalinux-create --name axis-fifo     --enable --type modules
+petalinux-create --name fifo-test     --enable --type apps --template c
+petalinux-create --name wpa-supp-conf --enable --type apps --template install

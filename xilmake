@@ -34,8 +34,8 @@ Arguments:
 		Show this help menu.
 
 	-i, --ignore
-		Skip steps that would rebuild previously completed
-		build steps if specified by -from, -to.
+		Skip steps that would overwrite previously completed
+		build steps if specified by --from, --to.
 
 	-o, --overwrite
 		Overwrite files from previously completed
@@ -52,23 +52,24 @@ Arguments:
 
 Build steps:
 
-0 or na - if you don't want to perform any build
-		  steps use --from na --to na
-1 or ip - generate and package IP from source
-		  (create Vivado IP projects & package IP)
-2 or vg - generate Vivado project from source & IP
-		  (import IP, generate main Vivado project
-		  from source and block diagram tcl script)
-3 or vb - build Vivado project
-		  (synthesis + implementation + generate bitstream +
-		  export bitstream)
-4 or lg - generate linux project
-		  (petalinux-create project, petalinux-config,
-		  petalinux-create modules/apps)
-5 or lc - copy linux sources
-		  (copy source files into module/app directories)
-6 or lb - build linux project
-		  (petalinux-build + petalinux-package)
+na - if you don't want to perform any build
+	steps use --from na --to na
+ip - generate and package IP from source
+	(create Vivado IP projects & package IP)
+vg - generate Vivado project from source & IP
+	(import IP, generate main Vivado project
+	from source and block diagram tcl script)
+vb - build Vivado project
+	(synthesis + implementation + generate bitstream +
+	export bitstream)
+lg - generate linux project
+	(petalinux-create project, petalinux-create modules/apps)
+lc - linux config 
+	(petalinux-config)
+ls - copy linux sources
+	(copy source files into module/app directories)
+lb - build linux project
+	(petalinux-build + petalinux-package)
 
 -------------------------------------------------------------------
 
@@ -92,17 +93,15 @@ Examples:
 generate & package IP
 xilmake -f ip -t ip .
 or
-xilmake -f 1 -t 1 .
-or
-xilmake -t1 ~/zynq/cool_project
+xilmake -tip ~/zynq/cool_project
 
-generate and build Vivado/FPGA design, downloading
+generate and build Vivado/FPGA design, creating
 the bit file directly without any linux compilation
 xilmake -f ip -t vb .
 
 generate and build linux from existing Vivado
 hardware design and also bring up manual linux config
-xilmake -f lg -t lb -c .
+xilmake -flg -tlb -c .
 
 generate and build linux from existing Vivado hardware
 design then download boot files to SD card /dev/sdc
@@ -116,7 +115,23 @@ download previously generated boot files
 to SD card /dev/sdb
 xilmake -d /dev/sdb ." 1>&2; exit 1; }
 
-# read the options
+# ----------------------------------------------------------
+# ----------------------- build steps ----------------------
+# ----------------------------------------------------------
+
+NA=0
+IP=1
+VG=2
+VB=3
+LG=4
+LC=5
+LS=6
+LB=7
+
+# ----------------------------------------------------------
+# ---------------------- read options ----------------------
+# ----------------------------------------------------------
+
 TEMP=`getopt -o cd:f:hiop:t: --long menuconfig,download:,from:,help,ignore,overwrite,project:,to: -n "xilmake" -- "$@"`
 eval set -- "$TEMP"
 
@@ -130,13 +145,14 @@ while true ; do
 			SD_CARD=$2 ; shift 2 ;;
 		-f|--from)
 			case $2 in
-				0|na) FROM=0 ; shift 2 ;;
-				1|ip) FROM=1 ; shift 2 ;;
-				2|vg) FROM=2 ; shift 2 ;;
-				3|vb) FROM=3 ; shift 2 ;;
-				4|lg) FROM=4 ; shift 2 ;;
-				5|lc) FROM=5 ; shift 2 ;;
-				6|lb) FROM=6 ; shift 2 ;;
+				na) FROM=$NA ; TO=$NA ; shift 2 ;;
+				ip) FROM=$IP ; shift 2 ;;
+				vg) FROM=$VG ; shift 2 ;;
+				vb) FROM=$VB ; shift 2 ;;
+				lg) FROM=$LG ; shift 2 ;;
+				lc) FROM=$LC ; shift 2 ;;
+				ls) FROM=$LS ; shift 2 ;;
+				lb) FROM=$LB ; shift 2 ;;
 				*) echo "Unrecognized --from option $1"; exit 1 ;;
 			esac ;;
 		-h|--help) usage ; shift ;;
@@ -146,13 +162,14 @@ while true ; do
 			PROJECT_NAME=$2 ; shift 2 ;;
 		-t|--to)
 			case $2 in
-				0|na) TO=0 ; shift 2 ;;
-				1|ip) TO=1 ; shift 2 ;;
-				2|vg) TO=2 ; shift 2 ;;
-				3|vb) TO=3 ; shift 2 ;;
-				4|lg) TO=4 ; shift 2 ;;
-				5|lc) TO=5 ; shift 2 ;;
-				6|lb) TO=6 ; shift 2 ;;
+				na) TO=$NA ; FROM=$NA ; shift 2 ;;
+				ip) TO=$IP ; shift 2 ;;
+				vg) TO=$VG ; shift 2 ;;
+				vb) TO=$VB ; shift 2 ;;
+				lg) TO=$LG ; shift 2 ;;
+				lc) TO=$LC ; shift 2 ;;
+				ls) TO=$LS ; shift 2 ;;
+				lb) TO=$LB ; shift 2 ;;
 				*) echo "Unrecognized --to option $1"; exit 1 ;;
 			esac ;;
 		--) shift ; break ;;
@@ -160,21 +177,24 @@ while true ; do
 	esac
 done
 
-# set defaults
+# ----------------------------------------------------------
+# ---------------------- set defaults ----------------------
+# ----------------------------------------------------------
+
 
 if [[ ! -z $SD_CARD && -z $FROM && -z $FROM ]]; then
 	# if SD card is specified but not FROM or TO
-	FROM=0
-	TO=0
+	FROM=$NA
+	TO=$NA
 else
 	# default build step to start at
 	if [[ -z $FROM ]]; then
-		FROM=1
+		FROM=$IP
 	fi
 
 	# default build step to stop at
 	if [[ -z $TO ]]; then
-		TO=6
+		TO=$LB
 	fi
 fi
 
@@ -189,6 +209,10 @@ if [[ -z  $OVERWRITE ]]; then
 	# 0 to ask, 1 to overwrite, anything else to skip
 	OVERWRITE=0
 fi
+
+# ----------------------------------------------------------
+# ------- project file/dir locations + error checks --------
+# ----------------------------------------------------------
 
 if [[ -z $1 ]]; then
 	echo "No project directory specified"
@@ -226,13 +250,17 @@ if ! [[ -e $TOP_DIR"/settings.sh" ]]; then
 	exit 1
 fi
 
+# ----------------------------------------------------------
+# -------------------- initial setup -----------------------
+# ----------------------------------------------------------
+
 START_TIME="$(date -u +%s)"
 
 # add required tools to PATH
-if ! [[ $FROM -gt 3 || $TO -lt 1 ]]; then
+if ! [[ $FROM -gt $VB || $TO -lt $IP ]]; then
 	source $VIVADO_INSTALL_DIR"/settings64.sh"
 fi
-if [[ ! ( $FROM -gt 6 || $TO -lt 4 ) ]]; then
+if ! [[ $FROM -gt $LB || $TO -lt $LG ]]; then
 	source $PETALINUX_INSTALL_DIR"/settings.sh" $PETALINUX_INSTALL_DIR
 fi
 
@@ -241,8 +269,11 @@ if [[ ! -e $PROJECT_BUILD_DIR ]]; then
 	mkdir -p $PROJECT_BUILD_DIR
 fi
 
-# generate and package project-specific IP from source
-if [[ $FROM -le 1 && $TO -ge 1 ]]; then
+# ----------------------------------------------------------
+# -- generate and package project-specific IP from source --
+# ----------------------------------------------------------
+
+if [[ $FROM -le $IP && $TO -ge $IP ]]; then
 	# check if step has already been performed
 	if [[ -e $IP_PROJECT_DIR ]]; then
 		if [[ $OVERWRITE -eq 0 ]]; then
@@ -291,8 +322,11 @@ if [[ $FROM -le 1 && $TO -ge 1 ]]; then
 	fi
 fi
 
-# generate Vivado project from source & IP
-if [[ $FROM -le 2 && $TO -ge 2 ]]; then
+# ----------------------------------------------------------
+# -------- generate Vivado project from source & IP --------
+# ----------------------------------------------------------
+
+if [[ $FROM -le $VG && $TO -ge $VG ]]; then
 	# check if step has already been performed
 	if [[ -e $VIVADO_PROJECT_DIR ]]; then
 		if [[ $OVERWRITE -eq 0 ]]; then
@@ -330,8 +364,11 @@ if [[ $FROM -le 2 && $TO -ge 2 ]]; then
 	fi
 fi
 
-# build Vivado project
-if [[ $FROM -le 3 && $TO -ge 3 ]]; then
+# ----------------------------------------------------------
+# ------------------ build Vivado project ------------------
+# ----------------------------------------------------------
+
+if [[ $FROM -le $VB && $TO -ge $VB ]]; then
 	# check if step has already been performed
 	if [[ -e $HDF_FILE ]]; then
 		if [[ $OVERWRITE -eq 0 ]]; then
@@ -374,7 +411,6 @@ if [[ $FROM -le 3 && $TO -ge 3 ]]; then
 
 		rm -f $PROJECT_BUILD_DIR"/build.tcl"
 
-
 		# if linux has already been built and won't be rebuilt,
 		# petalinux-package to copy over the new bit file
 		if [[ -e $LINUX_PROJECT_DIR"/images/linux/" && $TO -lt 6 ]]; then
@@ -398,8 +434,11 @@ if [[ $FROM -le 3 && $TO -ge 3 ]]; then
 	fi
 fi
 
-# generate linux project
-if [[ $FROM -le 4 && $TO -ge 4 ]]; then
+# ----------------------------------------------------------
+# ----------------- generate linux project -----------------
+# ----------------------------------------------------------
+
+if [[ $FROM -le $LG && $TO -ge $LG ]]; then
 	# check if step has already been performed
 	if [[ -e $LINUX_PROJECT_DIR ]]; then
 		if [[ $OVERWRITE -eq 0 ]]; then
@@ -437,36 +476,51 @@ if [[ $FROM -le 4 && $TO -ge 4 ]]; then
 		petalinux-create --type project --template zynq --name $LINUX_PROJECT_NAME
 		cd $LINUX_PROJECT_DIR
 
-		# configure petalinux
-		if [[ $LINUX_MANUAL_CONFIG != 0 ]]; then
-			petalinux-config --get-hw-description=$VIVADO_PROJECT_DIR
-			petalinux-config -c kernel 
-			petalinux-config -c rootfs
-			# copy generated config files to src folder
-			cp -f -v $LINUX_PROJECT_DIR"/project-spec/configs/config" $TOP_DIR"/src/linux/config/config-last"
-			cp -f -v $LINUX_PROJECT_DIR"/project-spec/configs/rootfs_config" $TOP_DIR"/src/linux/config/rootfs_config-last"
-		else
-			petalinux-config --get-hw-description=$VIVADO_PROJECT_DIR --oldconfig
-			petalinux-config -c rootfs --oldconfig
-
-			if [[ -e $TOP_DIR"/src/linux/config/config" ]]; then
-				cp -f -v $TOP_DIR"/src/linux/config/config" $LINUX_PROJECT_DIR"/project-spec/configs/"
-			fi
-			if [[ -e $TOP_DIR"/src/linux/config/rootfs_config" ]]; then
-				cp -f -v $TOP_DIR"/src/linux/config/rootfs_config" $LINUX_PROJECT_DIR"/project-spec/configs/"
-			fi
-			if [[ -e $TOP_DIR"/src/linux/config/kernel_config" ]]; then
-				petalinux-config -c kernel --defconfig=$TOP_DIR"/src/linux/config/kernel_config"
-			fi
-		fi
+		# start with default config
+		petalinux-config --get-hw-description=$VIVADO_PROJECT_DIR --oldconfig
 
 		# generate apps/modules
 		source $TOP_DIR"/src/linux/generate.sh"
 	fi
 fi
 
-# copy sources into linux project
-if [[ $FROM -le 5 && $TO -ge 5 ]]; then
+# ----------------------------------------------------------
+# ------------------ config linux project ------------------
+# ----------------------------------------------------------
+
+if [[ $FROM -le $LC && $TO -ge $LC ]]; then
+	if [[ $LINUX_MANUAL_CONFIG != 0 ]]; then
+		petalinux-config --get-hw-description=$VIVADO_PROJECT_DIR
+		petalinux-config -c kernel 
+		petalinux-config -c rootfs
+
+		prompt=$'ATTENTION!! kernel config file must be manually saved then copied to /src/linux/config/\nUse new configs for future builds? (y / n)'
+		read -p "$prompt" yn
+		if [[ $yn == "y"* ]] ; then
+			cp -f -v $LINUX_PROJECT_DIR"/project-spec/configs/config" $TOP_DIR"/src/linux/config/config"
+			cp -f -v $LINUX_PROJECT_DIR"/project-spec/configs/rootfs_config" $TOP_DIR"/src/linux/config/rootfs_config"
+		fi
+
+		cp -f -v $LINUX_PROJECT_DIR"/project-spec/configs/config" $TOP_DIR"/src/linux/config/config-last"
+		cp -f -v $LINUX_PROJECT_DIR"/project-spec/configs/rootfs_config" $TOP_DIR"/src/linux/config/rootfs_config-last"
+	else
+		if [[ -e $TOP_DIR"/src/linux/config/config" ]]; then
+			cp -f -v $TOP_DIR"/src/linux/config/config" $LINUX_PROJECT_DIR"/project-spec/configs/"
+		fi
+		if [[ -e $TOP_DIR"/src/linux/config/rootfs_config" ]]; then
+			cp -f -v $TOP_DIR"/src/linux/config/rootfs_config" $LINUX_PROJECT_DIR"/project-spec/configs/"
+		fi
+		if [[ -e $TOP_DIR"/src/linux/config/kernel_config" ]]; then
+			petalinux-config -c kernel --defconfig=$TOP_DIR"/src/linux/config/kernel_config"
+		fi
+	fi
+fi
+
+# ----------------------------------------------------------
+# ------------- copy sources into linux project ------------
+# ----------------------------------------------------------
+
+if [[ $FROM -le $LS && $TO -ge $LS ]]; then
 	echo "----------------------------------"
 	echo "Copying sources into Linux project"
 	echo "----------------------------------"
@@ -475,8 +529,11 @@ if [[ $FROM -le 5 && $TO -ge 5 ]]; then
 	source $TOP_DIR"/src/linux/copy.sh" $TOP_DIR"/src/linux" $LINUX_PROJECT_DIR
 fi
 
-# build petalinux project from existing configured project directory
-if [[ $FROM -le 6 && $TO -ge 6 ]]; then
+# ----------------------------------------------------------
+# --- build linux project from existing project directory --
+# ----------------------------------------------------------
+
+if [[ $FROM -le $LB && $TO -ge $LB ]]; then
 	echo "----------------------"
 	echo "Building Linux project"
 	echo "----------------------"
@@ -498,7 +555,10 @@ if [[ $FROM -le 6 && $TO -ge 6 ]]; then
 	rm -rf temp-python
 fi
 
-# download boot files to SD card
+# ----------------------------------------------------------
+# ------------- download boot files to SD card -------------
+# ----------------------------------------------------------
+
 if [[ ! -z $SD_CARD ]]; then
 	echo "------------------------------------------"
 	echo "Downloading boot files to SD card "$SD_CARD
@@ -568,6 +628,10 @@ if [[ ! -z $SD_CARD ]]; then
 		echo "SD card specified was not found. Not downloading..."
 	fi
 fi
+
+# ----------------------------------------------------------
+# ----------------------- cleanup --------------------------
+# ----------------------------------------------------------
 
 END_TIME="$(date -u +%s)"
 ELAPSED_TIME="$(($END_TIME-$START_TIME))"
