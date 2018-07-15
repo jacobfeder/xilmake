@@ -383,15 +383,12 @@ static ssize_t axis_fifo_read(struct file *f, char __user *buf,
 		if (read_timeout < 0) {
 			ret = wait_event_interruptible_lock_irq_timeout(
 				fifo->read_queue,
-				ioread32(fifo->base_addr +
-					XLLF_RDFO_OFFSET),
-				fifo->read_queue_lock,
-				MAX_SCHEDULE_TIMEOUT);
+				ioread32(fifo->base_addr + XLLF_RDFO_OFFSET),
+				fifo->read_queue_lock, MAX_SCHEDULE_TIMEOUT);
 		} else {
 			ret = wait_event_interruptible_lock_irq_timeout(
 				fifo->read_queue,
-				ioread32(fifo->base_addr +
-					XLLF_RDFO_OFFSET),
+				ioread32(fifo->base_addr + XLLF_RDFO_OFFSET),
 				fifo->read_queue_lock,
 				msecs_to_jiffies(read_timeout));
 		}
@@ -511,14 +508,16 @@ static ssize_t axis_fifo_write(struct file *f, const char __user *buf,
 			ret = wait_event_interruptible_lock_irq_timeout(
 					fifo->write_queue,
 					ioread32(fifo->base_addr +
-					    XLLF_TDFV_OFFSET) >= words_to_write,
+						 XLLF_TDFV_OFFSET) >=
+						 words_to_write,
 					fifo->write_queue_lock,
 					MAX_SCHEDULE_TIMEOUT);
 		} else {
 			ret = wait_event_interruptible_lock_irq_timeout(
 					fifo->write_queue,
 					ioread32(fifo->base_addr +
-					XLLF_TDFV_OFFSET) >= words_to_write,
+						 XLLF_TDFV_OFFSET) >=
+						 words_to_write,
 					fifo->write_queue_lock,
 					msecs_to_jiffies(write_timeout));
 		}
@@ -829,9 +828,8 @@ static int axis_fifo_probe(struct platform_device *pdev)
 		fifo->mem_start, fifo->mem_end);
 
 	/* map physical memory to kernel virtual address space */
-	fifo->base_addr = ioremap(fifo->mem_start,
-					    fifo->mem_end -
-					    fifo->mem_start + 1);
+	fifo->base_addr = ioremap(fifo->mem_start, fifo->mem_end -
+				  fifo->mem_start + 1);
 
 	if (!fifo->base_addr) {
 		dev_err(fifo->dt_device,
@@ -1108,9 +1106,8 @@ static int axis_fifo_probe(struct platform_device *pdev)
 
 	/* create driver file */
 	fifo->device = NULL;
-	fifo->device = device_create(axis_fifo_driver_class,
-					       NULL, fifo->devt,
-					       NULL, device_name);
+	fifo->device = device_create(axis_fifo_driver_class, NULL, fifo->devt,
+				     NULL, device_name);
 	if (!fifo->device) {
 		dev_err(fifo->dt_device,
 			"couldn't create driver file\n");
