@@ -5,11 +5,21 @@
 
 echo "Running startup script..."
 
-# set ethernet static IP address
-#ifconfig eth0 192.168.1.249 netmask 255.255.255.0 up
-
-# mount SD card
+# mount SD card boot partition
+mkdir /media/boot
 mount /dev/mmcblk0p1
 
+# mount SD card storage partition
+mkdir /media/storage
+mount /dev/mmcblk0p3
+
+IP=$(cat /media/storage/ip.txt)
+
 # start wireless service
-wpa_supplicant -B -i wlan0 -c /etc/wpa-supplicant.conf
+wpa_supplicant -B -i wlan0 -c /etc/wpa_supplicant_custom.conf
+# set wireless static IP address
+ifconfig wlan0 $IP netmask 255.255.255.0 up          
+                                
+# set ethernet static IP address                     
+#ifconfig eth0 $IP netmask 255.255.255.0 up
+

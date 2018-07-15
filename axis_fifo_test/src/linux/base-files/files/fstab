@@ -1,4 +1,4 @@
-# stock fstab - you probably want to override this with a machine specific one
+# mounts SD card boot partition
 
 /dev/root            /                    auto       defaults              1  1
 proc                 /proc                proc       defaults              0  0
@@ -6,5 +6,9 @@ devpts               /dev/pts             devpts     mode=0620,gid=5       0  0
 tmpfs                /run                 tmpfs      mode=0755,nodev,nosuid,strictatime 0  0
 tmpfs                /var/volatile        tmpfs      defaults              0  0
 
-# uncomment this if your device has a SD/MMC/Transflash slot
+# mount point for boot drive
 /dev/mmcblk0p1       /media/boot          auto       defaults,sync,noauto  0  0
+# mount point for ext4 rootfs drive
+/dev/mmcblk0p2       /media/rootfs        auto       defaults,sync,noauto  0  0
+# mount point for ext4 storage drive
+/dev/mmcblk0p3       /media/storage       auto       defaults,sync,noauto  0  0

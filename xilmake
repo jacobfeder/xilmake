@@ -12,19 +12,31 @@
 usage() { echo "Usage: xilmake [options] [project directory]
 Description: Automated build system for Zynq SoC projects.
 
--------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
 Arguments:
 
-	-c, --menuconfig
-		Bring up the menu for petalinux configuration
-		during compilation. Also copies the generated
-		config files into the source directory.
+	-c, --menuconfig [g, r, k]
+		Bring up the menu for manual configuration during compilation
+		for each of the given arguments. Pass the letter of the
+		corresponding configs in any order.
 
-	-d, --download [SD card directory]
+		g = general config
+		r = rootfs config
+		k = kernel config
+
+		Also copies the general and rootfs config files into the source
+		directory (/src/linux/config/saved_configs/config-last and
+		/src/linux/config/saved_configs/rootfs_config-last).
+
+	-d, --download [SD card file]
 		Download boot files to an SD card (e.g. /dev/sdc).
 		Does not perform any build steps unless an --from or
 		--to option is specified.
+
+	--format
+		Format an SD card with boot, rootfs, and storage partitions
+		before downloading (must be used with -d option)
 
 	-f,  --from [see below]
 		The build step to start at. Assumed to be
@@ -48,71 +60,65 @@ Arguments:
 		The build step to stop at (inclusive). Assumed to be the
 		last build step if not specified.
 
--------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
 Build steps:
 
-na - if you don't want to perform any build
-	steps use --from na --to na
-ip - generate and package IP from source
-	(create Vivado IP projects & package IP)
-vg - generate Vivado project from source & IP
-	(import IP, generate main Vivado project
-	from source and block diagram tcl script)
-vb - build Vivado project
-	(synthesis + implementation + generate bitstream +
+na - if you don't want to perform any build steps use --from na --to na
+ip - generate and package IP from source (create Vivado IP projects &
+	package IP)
+vg - generate Vivado project from source & IP (import IP, generate main
+	Vivado project from source and block diagram tcl script)
+vb - build Vivado project (synthesis + implementation + generate bitstream +
 	export bitstream)
-lg - generate linux project
-	(petalinux-create project, petalinux-create modules/apps)
-lc - linux config 
-	(petalinux-config)
-ls - copy linux sources
-	(copy source files into module/app directories)
-lb - build linux project
-	(petalinux-build + petalinux-package)
+lg - generate linux project (petalinux-create project,
+	petalinux-create modules/apps)
+lc - linux config (petalinux-config)
+ls - copy linux sources (copy source files petalinux directories)
+lb - build linux project (petalinux-build + petalinux-package)
 
--------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
 Notes:
 
 Supports the following linux rootfs types:
 - initramfs
 - initrd
-- SD boot (however the rootfs will not be automatically updated;
-	you must use xilmake -d to download the rootfs to the SD card)
+- SD boot (use xilmake -d to download the rootfs to the SD card)
 
 If Vivado build (vb) is run and linux has already been built,
 petalinux-package will be run with the most recent bitstream file.
 This can decrease build time if only FPGA firmware that doesn't
 interface with the PS was modified.
 
--------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
 Examples:
 
-generate & package IP
+# generate & package IP
 xilmake -f ip -t ip .
-or
+# or
 xilmake -tip ~/zynq/cool_project
 
-generate and build Vivado/FPGA design, creating
-the bit file directly without any linux compilation
+# generate and build Vivado/FPGA design, creating the bit file directly without
+# any linux compilation
 xilmake -f ip -t vb .
 
-generate and build linux from existing Vivado
-hardware design and also bring up manual linux config
-xilmake -flg -tlb -c .
+# generate and build linux from existing Vivado hardware design and also bring
+# up the manual config menu for general and rootfs configs
+xilmake -flg -tlb -cgr .
+# or
+xilmake -flg -cgr .
 
-generate and build linux from existing Vivado hardware
-design then download boot files to SD card /dev/sdc
+# generate and build linux from existing Vivado hardware design then download
+# boot files to SD card /dev/sdc
 xilmake -f lg -d /dev/sdc .
 
-generate and build entire project and download
-boot files to SD card
+# generate and build entire project and download boot files to SD card
 xilmake -tlb -d /dev/sdc .
 
-download previously generated boot files
-to SD card /dev/sdb
+# download previously generated boot files
+# to SD card /dev/sdb
 xilmake -d /dev/sdb ." 1>&2; exit 1; }
 
 # ----------------------------------------------------------
@@ -132,17 +138,36 @@ LB=7
 # ---------------------- read options ----------------------
 # ----------------------------------------------------------
 
-TEMP=`getopt -o cd:f:hiop:t: --long menuconfig,download:,from:,help,ignore,overwrite,project:,to: -n "xilmake" -- "$@"`
+TEMP=`getopt -o c:d:f:hiop:t: --long menuconfig:,download:,format,from:,help,ignore,overwrite,project:,to: -n "xilmake" -- "$@"`
 eval set -- "$TEMP"
 
 # TODO linux quick build option that runs script to gcc compile + sftp
+# TODO wireless update w/ sftp
+# TODO NFS
 
 # extract options and their arguments into variables.
 while true ; do
 	case $1 in
-		-c|--menuconfig) LINUX_MANUAL_CONFIG=1 ; shift ;;
+		-c|--menuconfig)
+			if [[ $2 = *"g"* ]]; then
+				LINUX_MANUAL_CONFIG_GENERAL=1
+			fi
+			if [[ $2 = *"r"* ]]; then
+				LINUX_MANUAL_CONFIG_ROOTFS=1
+			fi
+			if [[ $2 = *"k"* ]]; then
+				LINUX_MANUAL_CONFIG_KERNEL=1
+			fi
+			if ! [[ LINUX_MANUAL_CONFIG_GENERAL && LINUX_MANUAL_CONFIG_ROOTFS && LINUX_MANUAL_CONFIG_KERNEL ]]; then
+				echo "No menuconfig -c items specified"
+				exit 1
+			else
+				shift 2
+			fi ;;
 		-d|--download)
 			SD_CARD=$2 ; shift 2 ;;
+		--format)
+			FORMAT_SD_CARD=1 ; shift ;;
 		-f|--from)
 			case $2 in
 				na) FROM=$NA ; TO=$NA ; shift 2 ;;
@@ -198,10 +223,19 @@ else
 	fi
 fi
 
-if [[ -z  $LINUX_MANUAL_CONFIG ]]; then
-	# whether linux config menu should be brought up during build
+if [[ -z  $LINUX_MANUAL_CONFIG_GENERAL ]]; then
 	# 0 to use default configs, 1 to bring up dialog
-	LINUX_MANUAL_CONFIG=0
+	LINUX_MANUAL_CONFIG_GENERAL=0
+fi
+
+if [[ -z  $LINUX_MANUAL_CONFIG_ROOTFS ]]; then
+	# 0 to use default configs, 1 to bring up dialog
+	LINUX_MANUAL_CONFIG_ROOTFS=0
+fi
+
+if [[ -z  $LINUX_MANUAL_CONFIG_KERNEL ]]; then
+	# 0 to use default configs, 1 to bring up dialog
+	LINUX_MANUAL_CONFIG_KERNEL=0
 fi
 
 if [[ -z  $OVERWRITE ]]; then
@@ -489,29 +523,50 @@ fi
 # ----------------------------------------------------------
 
 if [[ $FROM -le $LC && $TO -ge $LC ]]; then
-	if [[ $LINUX_MANUAL_CONFIG != 0 ]]; then
+	echo "-------------------------"
+	echo "Configuring Linux project"
+	echo "-------------------------"
+	cd $LINUX_PROJECT_DIR
+
+	if [[ ! -e $TOP_DIR"/src/linux/config/saved_configs/" ]]; then
+		mkdir -p $TOP_DIR"/src/linux/config/saved_configs/"
+	fi
+
+	if [[ $LINUX_MANUAL_CONFIG_GENERAL != 0 ]]; then
 		petalinux-config --get-hw-description=$VIVADO_PROJECT_DIR
-		petalinux-config -c kernel 
-		petalinux-config -c rootfs
-
-		prompt=$'ATTENTION!! kernel config file must be manually saved then copied to /src/linux/config/\nUse new configs for future builds? (y / n)'
-		read -p "$prompt" yn
-		if [[ $yn == "y"* ]] ; then
-			cp -f -v $LINUX_PROJECT_DIR"/project-spec/configs/config" $TOP_DIR"/src/linux/config/config"
-			cp -f -v $LINUX_PROJECT_DIR"/project-spec/configs/rootfs_config" $TOP_DIR"/src/linux/config/rootfs_config"
-		fi
-
-		cp -f -v $LINUX_PROJECT_DIR"/project-spec/configs/config" $TOP_DIR"/src/linux/config/config-last"
-		cp -f -v $LINUX_PROJECT_DIR"/project-spec/configs/rootfs_config" $TOP_DIR"/src/linux/config/rootfs_config-last"
+		cp -f -v $LINUX_PROJECT_DIR"/project-spec/configs/config" $TOP_DIR"/src/linux/config/saved_configs/config-last"
 	else
 		if [[ -e $TOP_DIR"/src/linux/config/config" ]]; then
 			cp -f -v $TOP_DIR"/src/linux/config/config" $LINUX_PROJECT_DIR"/project-spec/configs/"
+		else
+			echo "Using default general config..."
 		fi
+		petalinux-config --get-hw-description=$VIVADO_PROJECT_DIR --oldconfig
+
+	fi
+
+	if [[ $LINUX_MANUAL_CONFIG_ROOTFS != 0 ]]; then
+		petalinux-config -c rootfs
+		cp -f -v $LINUX_PROJECT_DIR"/project-spec/configs/rootfs_config" $TOP_DIR"/src/linux/config/saved_configs/rootfs_config-last"
+	else
 		if [[ -e $TOP_DIR"/src/linux/config/rootfs_config" ]]; then
 			cp -f -v $TOP_DIR"/src/linux/config/rootfs_config" $LINUX_PROJECT_DIR"/project-spec/configs/"
+		else
+			echo "Using default rootfs config..."
 		fi
-		if [[ -e $TOP_DIR"/src/linux/config/kernel_config" ]]; then
-			petalinux-config -c kernel --defconfig=$TOP_DIR"/src/linux/config/kernel_config"
+		petalinux-config -c rootfs --oldconfig
+	fi
+
+
+	if [[ $LINUX_MANUAL_CONFIG_KERNEL != 0 ]]; then
+		echo "!! ATTENTION !! kernel config file must be manually saved"
+		petalinux-config -c kernel
+	else
+		if [[ -e $TOP_DIR"/src/linux/config/linux-xlnx_%.bbappend" ]]; then
+			cp -f -v $TOP_DIR"/src/linux/config/linux-xlnx_%.bbappend" $LINUX_PROJECT_DIR"/project-spec/meta-plnx-generated/recipes-kernel/linux/"
+			cp -f -v $TOP_DIR"/src/linux/config/kernel_config_fragments/"* $LINUX_PROJECT_DIR"/project-spec/meta-plnx-generated/recipes-kernel/linux/configs"
+		else
+			echo "Using default kernel config..."
 		fi
 	fi
 fi
@@ -559,24 +614,19 @@ fi
 # ------------- download boot files to SD card -------------
 # ----------------------------------------------------------
 
+# SD card partition mount locations
+SD_MNT_BOOT_DIR=/mnt/BOOT
+SD_MNT_ROOTFS_DIR=/mnt/rootfs
+SD_MNT_STORAGE_DIR=/mnt/storage
+
 if [[ ! -z $SD_CARD ]]; then
-	echo "------------------------------------------"
-	echo "Downloading boot files to SD card "$SD_CARD
-	echo "------------------------------------------"
+	if [[ ! -z $FORMAT_SD_CARD ]]; then
+		echo "------------------------------------------"
+		echo "       Formatting SD card "$SD_CARD
+		echo "------------------------------------------"
 
-	if ls $SD_CARD"1" 1> /dev/null 2>&1; then
-
-		if ! blkid $SD_CARD"1" | grep -q vfat ; then
-			read -p "SD card partition 1 (boot partition) is not FAT. Are you sure you want to continue? (y / n)" yn
-		else
-			yn=y
-		fi
-
+		read -p "About to erase all data on $SD_CARD and format it. Are you sure you want to continue? (y / n)" yn
 		if [[ $yn == "y"* ]] ; then
-			# SD card partition mount locations
-			BOOT_DIR=/mnt/BOOT
-			ROOTFS_DIR=/mnt/rootfs
-
 			# unmount and remove all partitions
 			partitions=($SD_CARD?)
 			if [[ "$partitions" != $SD_CARD\? ]]; then
@@ -587,42 +637,72 @@ if [[ ! -z $SD_CARD ]]; then
 			fi
 
 			# create partition table
-			sudo parted $SD_CARD -s mklabel msdos
+			sudo parted $SD_CARD mklabel msdos
 
 			# create boot partition
-			sudo parted $SD_CARD mkpart primary fat32 4MiB 516MiB
+			sudo parted -a optimal $SD_CARD -s 'mkpart primary fat32 0% 512MB'
 			# create rootfs partition
-			sudo parted $SD_CARD mkpart primary ext4 516MiB 100%
+			sudo parted -a optimal $SD_CARD -s 'mkpart primary ext4 512MB 90%'
+			# create storage partition
+			sudo parted -a optimal $SD_CARD -s 'mkpart primary ext4 90% 100%'
 
 			# format boot as fat32
 			sudo mkfs.fat -F32 -n BOOT $SD_CARD"1"
 			# format rootfs as ext4
 			sudo mkfs.ext4 -F -L rootfs $SD_CARD"2"
+			# format storage as ext4
+			sudo mkfs.ext4 -F -L storage $SD_CARD"3"
+		else
+			echo "Not formatting..."
+		fi
+	fi
 
+	echo "------------------------------------------"
+	echo "Downloading boot files to SD card "$SD_CARD
+	echo "------------------------------------------"
+
+	if ls $SD_CARD"1" 1> /dev/null 2>&1; then
+		if blkid $SD_CARD"1" | grep -q vfat ; then
 			# mount boot partition
-			sudo mkdir -p $BOOT_DIR
-			sudo mount $SD_CARD"1" $BOOT_DIR
+			sudo mkdir -p $SD_MNT_BOOT_DIR
+			sudo mount $SD_CARD"1" $SD_MNT_BOOT_DIR
 
 			# mount rootfs partition
-			sudo mkdir -p $ROOTFS_DIR
-			sudo mount $SD_CARD"2" $ROOTFS_DIR
+			sudo mkdir -p $SD_MNT_ROOTFS_DIR
+			sudo mount $SD_CARD"2" $SD_MNT_ROOTFS_DIR
+
+			# mount storage partition
+			sudo mkdir -p $SD_MNT_STORAGE_DIR
+			sudo mount $SD_CARD"3" $SD_MNT_STORAGE_DIR
+
+			# remove all previous files from partitions
+			sudo rm -rf $SD_MNT_BOOT_DIR"/"*
+			sudo rm -rf $SD_MNT_ROOTFS_DIR"/"*
+			sudo rm -rf $SD_MNT_STORAGE_DIR"/"*
 
 			# copy FSBL, u-boot, bitstream into boot partition
-			sudo cp -f $LINUX_PROJECT_DIR"/images/linux/BOOT.BIN" $BOOT_DIR
+			sudo cp -f -v $LINUX_PROJECT_DIR"/images/linux/BOOT.BIN" $SD_MNT_BOOT_DIR
 			# add additional u-boot environment variables into boot partition
-			echo 'uenvcmd=if test -n ${ipaddr}; then tftpboot ${clobstart} system.bit; fpga loadb 0 ${clobstart} ${filesize}; run update_boot; run update_kernel; else echo "No ethernet connection, skipping TFTP update..."; fi' | sudo tee $BOOT_DIR"/uEnv.txt" > /dev/null
+			echo 'uenvcmd=if test -n ${ipaddr}; then tftpboot ${clobstart} system.bit; fpga loadb 0 ${clobstart} ${filesize}; run update_boot; run update_kernel; else echo "No ethernet connection, skipping TFTP update..."; fi' | sudo tee $SD_MNT_BOOT_DIR"/uEnv.txt" > /dev/null
 
-			# copy kernel into boot partition
-			sudo cp -f $LINUX_PROJECT_DIR"/images/linux/image.ub" $BOOT_DIR
+			# copy FIT image into boot partition
+			sudo cp -f -v $LINUX_PROJECT_DIR"/images/linux/image.ub" $SD_MNT_BOOT_DIR
 
 			# decompress linux into rootfs partition
-			sudo tar -xzf $LINUX_PROJECT_DIR"/images/linux/rootfs.tar.gz" -C $ROOTFS_DIR
+			sudo tar -xzf $LINUX_PROJECT_DIR"/images/linux/rootfs.tar.gz" -C $SD_MNT_ROOTFS_DIR
+
+			# copy default storage files into storage partition
+			sudo cp -f -v $TOP_DIR"/src/linux/storage/"* $SD_MNT_STORAGE_DIR
 
 			# unmount partitions
+			sudo umount $SD_CARD"3"
 			sudo umount $SD_CARD"2"
 			sudo umount $SD_CARD"1"
-			sudo rm -rf $BOOT_DIR
-			sudo rm -rf $ROOTFS_DIR
+			sudo rm -rf $SD_MNT_BOOT_DIR
+			sudo rm -rf $SD_MNT_ROOTFS_DIR
+			sudo rm -rf $SD_MNT_STORAGE_DIR
+		else
+			echo "SD card not formatted correctly: partition 1 (boot partition) is not FAT"
 		fi
 	else
 		echo "SD card specified was not found. Not downloading..."

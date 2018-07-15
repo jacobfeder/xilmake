@@ -54,7 +54,7 @@
 # CONFIG_busybox-inetd is not set
 # CONFIG_busybox-dev is not set
 # CONFIG_busybox-hwclock is not set
-# CONFIG_busybox-udhcpc is not set
+CONFIG_busybox-udhcpc=y
 # CONFIG_busybox-mdev is not set
 # CONFIG_busybox-syslog is not set
 
@@ -3606,7 +3606,7 @@ CONFIG_bridge-utils=y
 #
 # wpa-supplicant 
 #
-# CONFIG_wpa-supplicant is not set
+CONFIG_wpa-supplicant=y
 # CONFIG_wpa-supplicant-passphrase is not set
 # CONFIG_wpa-supplicant-cli is not set
 # CONFIG_wpa-supplicant-dev is not set
@@ -4130,8 +4130,17 @@ CONFIG_bridge-utils=y
 #
 # apps 
 #
+CONFIG_driver-firmware=y
+CONFIG_fifo-test=y
 # CONFIG_gpio-demo is not set
 # CONFIG_peekpoke is not set
+CONFIG_startup=y
+CONFIG_wpa-supp=y
+
+#
+# modules 
+#
+CONFIG_axis-fifo=y
 
 #
 # user packages 
