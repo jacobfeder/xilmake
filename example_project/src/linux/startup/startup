@@ -12,3 +12,9 @@ mount /dev/mmcblk0p1
 # mount SD card storage partition
 mkdir /media/storage
 mount /dev/mmcblk0p3
+
+# copy boot logs to storage
+mkdir /media/storage/logs
+cp -f /var/logs/boot /media/storage/logs
+cp -f /var/logs/dmesg /media/storage/logs
+cp -f /var/logs/messages /media/storage/logs

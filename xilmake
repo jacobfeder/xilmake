@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -e
 
 # Jacob Feder jacobsfeder@gmail.com
 # 1/29/2018
@@ -205,7 +205,6 @@ done
 # ----------------------------------------------------------
 # ---------------------- set defaults ----------------------
 # ----------------------------------------------------------
-
 
 if [[ ! -z $SD_CARD && -z $FROM && -z $FROM ]]; then
 	# if SD card is specified but not FROM or TO
@@ -692,7 +691,9 @@ if [[ ! -z $SD_CARD ]]; then
 			sudo tar -xzf $LINUX_PROJECT_DIR"/images/linux/rootfs.tar.gz" -C $SD_MNT_ROOTFS_DIR
 
 			# copy default storage files into storage partition
-			sudo cp -f -v $TOP_DIR"/src/linux/storage/"* $SD_MNT_STORAGE_DIR
+			if [[ -e $TOP_DIR"/src/linux/storage/" ]]; then
+				sudo cp -f -v $TOP_DIR"/src/linux/storage/"* $SD_MNT_STORAGE_DIR
+			fi
 
 			# unmount partitions
 			sudo umount $SD_CARD"3"
