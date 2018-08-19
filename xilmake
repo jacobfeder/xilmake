@@ -720,5 +720,6 @@ ELAPSED_TIME="$(($END_TIME-$START_TIME))"
 ((MINUTES=(${ELAPSED_TIME} % 3600) / 60))
 ((SECONDS=${ELAPSED_TIME} % 60))
 printf "Build complete - run time %02d:%02d:%02d\n" $HOURS $MINUTES $SECONDS
+notify-send "xilmake build complete"
 
 cd $OG_DIR
